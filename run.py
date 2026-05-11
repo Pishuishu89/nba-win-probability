@@ -48,4 +48,4 @@ if __name__ == "__main__":
     t = threading.Thread(target=broadcast_loop, daemon=True)
     t.start()
     port = int(os.environ.get("PORT", 5050))
-    socketio.run(app, host="0.0.0.0", port=port, debug=False)
+    socketio.run(app, host="0.0.0.0", port=port, debug=False, allow_unsafe_werkzeug=True)
