@@ -117,7 +117,6 @@ python-engineio==4.13.1
 python-mnist==0.7
 python-socketio==5.16.1
 pytz==2025.2
-pywin32==310
 PyYAML==6.0.3
 pyzmq==27.0.0
 requests==2.32.4
