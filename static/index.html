@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>NBA Win Probability · Live</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.6.1/socket.io.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #070a10;
+    --panel: #0d1117;
+    --border: #1c2333;
+    --accent: #f97316;
+    --accent2: #3b82f6;
+    --green: #22c55e;
+    --red: #ef4444;
+    --muted: #4b5563;
+    --text: #e2e8f0;
+    --text2: #94a3b8;
+    --mono: 'DM Mono', monospace;
+    --sans: 'DM Sans', sans-serif;
+    --display: 'Bebas Neue', sans-serif;
+    --radius: 12px;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    display: grid;
+    grid-template-rows: 56px 1fr;
+    overflow-x: hidden;
+  }
+
+  /* ── Header ── */
+  header {
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 28px;
+    background: rgba(7,10,16,.92);
+    backdrop-filter: blur(12px);
+    position: sticky; top: 0; z-index: 50;
+  }
+  .logo { font-family: var(--display); font-size: 1.5rem; letter-spacing: .05em; color: var(--accent); }
+  .logo span { color: var(--text); }
+  #status-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--muted);
+    display: inline-block;
+    margin-right: 8px;
+    transition: background .4s;
+  }
+  #status-dot.live { background: var(--green); box-shadow: 0 0 6px var(--green); animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1}50%{opacity:.5} }
+  #conn-label { font-family: var(--mono); font-size:.75rem; color: var(--text2); }
+
+  /* ── Layout ── */
+  .layout {
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    gap: 0;
+    height: calc(100vh - 56px);
+    overflow: hidden;
+  }
+
+  /* ── Sidebar ── */
+  .sidebar {
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    padding: 16px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .sidebar-title {
+    font-family: var(--mono); font-size: .65rem;
+    text-transform: uppercase; letter-spacing: .1em;
+    color: var(--muted); padding: 4px 8px 12px;
+  }
+  .game-card {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px 14px;
+    cursor: pointer;
+    transition: border-color .2s, background .2s;
+    position: relative;
+    overflow: hidden;
+  }
+  .game-card:hover { border-color: var(--muted); background: rgba(255,255,255,.02); }
+  .game-card.active { border-color: var(--accent); background: rgba(249,115,22,.05); }
+  .game-card .teams { font-family: var(--display); font-size: 1.1rem; letter-spacing: .04em; }
+  .game-card .teams .vs { color: var(--muted); font-size: .85rem; margin: 0 6px; }
+  .game-card .score-line { font-family: var(--mono); font-size: .8rem; color: var(--text2); margin-top: 4px; }
+  .game-card .badge {
+    position: absolute; top: 10px; right: 10px;
+    font-family: var(--mono); font-size: .6rem;
+    padding: 2px 6px; border-radius: 4px;
+    text-transform: uppercase; letter-spacing: .05em;
+  }
+  .badge.live-badge { background: rgba(34,197,94,.15); color: var(--green); }
+  .badge.sim-badge  { background: rgba(59,130,246,.12); color: var(--accent2); }
+
+  /* ── Main panel ── */
+  .main {
+    overflow-y: auto;
+    padding: 24px 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  /* ── Scoreboard banner ── */
+  .scoreboard {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px 28px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: linear-gradient(135deg, rgba(249,115,22,.06) 0%, transparent 60%);
+  }
+  .team-block { text-align: center; min-width: 90px; }
+  .team-abbr { font-family: var(--display); font-size: 2.4rem; letter-spacing: .06em; }
+  .team-score { font-family: var(--display); font-size: 3.5rem; line-height: 1; }
+  .team-label { font-family: var(--mono); font-size: .65rem; color: var(--text2); margin-top: 2px; text-transform: uppercase; }
+  .game-info { text-align: center; }
+  .game-period { font-family: var(--mono); font-size: .8rem; color: var(--text2); }
+  .game-clock { font-family: var(--display); font-size: 1.8rem; margin-top: 4px; }
+  .game-status { font-family: var(--mono); font-size: .65rem; color: var(--accent); margin-top: 4px; text-transform: uppercase; letter-spacing: .1em; }
+
+  /* ── Win probability bar ── */
+  .prob-section {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px 24px;
+  }
+  .prob-header {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 14px;
+  }
+  .prob-title { font-family: var(--mono); font-size: .7rem; text-transform: uppercase; letter-spacing: .1em; color: var(--text2); }
+  .prob-numbers { display: flex; gap: 32px; align-items: baseline; }
+  .prob-home, .prob-away { text-align: center; }
+  .prob-pct { font-family: var(--display); font-size: 2.8rem; }
+  .prob-pct.home-col { color: var(--accent); }
+  .prob-pct.away-col { color: var(--accent2); }
+  .prob-sub { font-family: var(--mono); font-size: .65rem; color: var(--text2); }
+
+  .prob-bar-wrap {
+    height: 18px;
+    border-radius: 9px;
+    overflow: hidden;
+    background: var(--border);
+    display: flex;
+    position: relative;
+  }
+  .prob-bar-home {
+    background: linear-gradient(90deg, var(--accent), #fb923c);
+    transition: width .6s cubic-bezier(.4,0,.2,1);
+    border-radius: 9px 0 0 9px;
+  }
+  .prob-bar-away {
+    background: linear-gradient(90deg, #60a5fa, var(--accent2));
+    flex: 1;
+    border-radius: 0 9px 9px 0;
+  }
+  .prob-bar-mid {
+    position: absolute;
+    left: 50%; top: 0; bottom: 0;
+    width: 1px;
+    background: rgba(255,255,255,.15);
+  }
+
+  /* ── Chart ── */
+  .chart-section {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px 24px;
+    flex: 1;
+  }
+  .chart-title { font-family: var(--mono); font-size: .7rem; text-transform: uppercase; letter-spacing: .1em; color: var(--text2); margin-bottom: 16px; }
+  #prob-chart { width: 100% !important; height: 220px !important; }
+
+  /* ── Stats grid ── */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+  }
+  .stat-card {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    background: rgba(255,255,255,.015);
+  }
+  .stat-label { font-family: var(--mono); font-size: .62rem; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 6px; }
+  .stat-value { font-family: var(--display); font-size: 1.6rem; letter-spacing: .02em; }
+  .stat-sub { font-family: var(--mono); font-size: .65rem; color: var(--text2); margin-top: 2px; }
+
+  /* ── Play log ── */
+  .log-section {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .log-header {
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--border);
+    font-family: var(--mono); font-size: .7rem;
+    text-transform: uppercase; letter-spacing: .1em; color: var(--text2);
+    display: flex; justify-content: space-between;
+  }
+  #play-log {
+    max-height: 200px;
+    overflow-y: auto;
+    padding: 8px 0;
+  }
+  .log-row {
+    padding: 6px 20px;
+    font-family: var(--mono); font-size: .72rem;
+    display: flex; gap: 12px; align-items: center;
+    border-bottom: 1px solid rgba(255,255,255,.03);
+    animation: fadeIn .3s ease;
+  }
+  @keyframes fadeIn { from{opacity:0;transform:translateY(-4px)} to{opacity:1;transform:translateY(0)} }
+  .log-time { color: var(--muted); width: 50px; flex-shrink: 0; }
+  .log-score { color: var(--accent); width: 60px; flex-shrink: 0; }
+  .log-prob { width: 55px; flex-shrink: 0; }
+  .log-prob.up   { color: var(--green); }
+  .log-prob.down { color: var(--red); }
+  .log-diff { color: var(--text2); }
+
+  /* ── Empty state ── */
+  .empty-state {
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    color: var(--muted); text-align: center; gap: 12px;
+    padding: 60px;
+  }
+  .empty-state .icon { font-size: 3rem; }
+  .empty-state p { font-family: var(--mono); font-size: .8rem; line-height: 1.6; }
+
+  /* scrollbar */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">COURT<span>IQ</span> <span style="color:var(--muted);font-size:.9rem">Win Probability</span></div>
+  <div>
+    <span id="status-dot"></span>
+    <span id="conn-label">connecting…</span>
+  </div>
+</header>
+
+<div class="layout">
+  <!-- Sidebar: game list -->
+  <aside class="sidebar">
+    <div class="sidebar-title">Games</div>
+    <div id="game-list"></div>
+  </aside>
+
+  <!-- Main -->
+  <main class="main" id="main-panel">
+    <div class="empty-state" id="empty-state">
+      <div class="icon">🏀</div>
+      <p>Select a game from the sidebar<br>to see live win probabilities.</p>
+    </div>
+  </main>
+</div>
+
+<script>
+const socket = io();
+
+let activeGameId   = null;
+let chartInstance  = null;
+let historyMap     = {};   // game_id → [{t, hw, aw}]
+let prevProb       = null;
+let logEntries     = [];
+
+// ── Connection ────────────────────────────────────────────────────────────────
+socket.on("connect", () => {
+  document.getElementById("status-dot").classList.add("live");
+  document.getElementById("conn-label").textContent = "connected";
+});
+socket.on("disconnect", () => {
+  document.getElementById("status-dot").classList.remove("live");
+  document.getElementById("conn-label").textContent = "reconnecting…";
+});
+
+// ── Lobby ─────────────────────────────────────────────────────────────────────
+socket.on("lobby_update", (games) => {
+  const list = document.getElementById("game-list");
+  list.innerHTML = "";
+  games.forEach(g => {
+    const card = document.createElement("div");
+    card.className = "game-card" + (g.game_id === activeGameId ? " active" : "");
+    card.dataset.gid = g.game_id;
+    const badge = g.source === "sim"
+      ? `<span class="badge sim-badge">Sim</span>`
+      : `<span class="badge live-badge">Live</span>`;
+    card.innerHTML = `
+      ${badge}
+      <div class="teams">
+        <span>${g.away_team}</span>
+        <span class="vs">@</span>
+        <span>${g.home_team}</span>
+      </div>
+      <div class="score-line">${g.away_score} – ${g.home_score} · ${g.status}</div>
+    `;
+    card.addEventListener("click", () => selectGame(g.game_id));
+    list.appendChild(card);
+  });
+});
+
+// ── Game update ───────────────────────────────────────────────────────────────
+socket.on("game_update", (data) => {
+  if (data.game_id !== activeGameId) return;
+
+  // history
+  if (!historyMap[data.game_id]) historyMap[data.game_id] = [];
+  const hist = historyMap[data.game_id];
+  hist.push({ t: data.time_remaining_s, hw: data.home_win_prob, aw: data.away_win_prob });
+  if (hist.length > 300) hist.shift();
+
+  renderDashboard(data, hist);
+});
+
+// ── Select game ───────────────────────────────────────────────────────────────
+function selectGame(gid) {
+  if (activeGameId) socket.emit("unsubscribe_game", {game_id: activeGameId});
+  activeGameId = gid;
+  prevProb = null;
+  logEntries = [];
+  document.getElementById("empty-state")?.remove();
+  socket.emit("subscribe_game", {game_id: gid});
+  // highlight sidebar
+  document.querySelectorAll(".game-card").forEach(c => {
+    c.classList.toggle("active", c.dataset.gid === gid);
+  });
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+function renderDashboard(d, hist) {
+  const main = document.getElementById("main-panel");
+  let el = document.getElementById("dashboard-root");
+  if (!el) {
+    main.innerHTML = getDashboardHTML();
+    el = document.getElementById("dashboard-root");
+    initChart();
+  }
+
+  const hw = d.home_win_prob;
+  const aw = d.away_win_prob;
+
+  // scoreboard
+  document.getElementById("d-away-abbr").textContent  = d.away_team;
+  document.getElementById("d-home-abbr").textContent  = d.home_team;
+  document.getElementById("d-away-score").textContent = d.away_score;
+  document.getElementById("d-home-score").textContent = d.home_score;
+  document.getElementById("d-period").textContent     = `Q${d.period}`;
+  document.getElementById("d-clock").textContent      = d.clock;
+  document.getElementById("d-status").textContent     = d.status;
+
+  // prob bar
+  document.getElementById("d-home-pct").textContent = `${(hw*100).toFixed(1)}%`;
+  document.getElementById("d-away-pct").textContent = `${(aw*100).toFixed(1)}%`;
+  document.getElementById("d-bar-home").style.width  = `${hw*100}%`;
+
+  // stats
+  const diff = d.score_diff;
+  const mins = Math.floor(d.time_remaining_s / 60);
+  const secs = d.time_remaining_s % 60;
+  document.getElementById("d-stat-diff").textContent   = diff >= 0 ? `+${diff}` : `${diff}`;
+  document.getElementById("d-stat-time").textContent   = `${mins}:${String(secs).padStart(2,"0")}`;
+  document.getElementById("d-stat-fouls").textContent  = `${d.home_fouls}–${d.away_fouls}`;
+  document.getElementById("d-stat-to").textContent     = `${d.home_timeouts}–${d.away_timeouts}`;
+
+  // chart update
+  updateChart(hist, d.home_team, d.away_team);
+
+  // play log
+  if (prevProb !== null) {
+    const delta = hw - prevProb;
+    if (Math.abs(delta) > 0.005) {
+      addLogRow(d, hw, delta);
+    }
+  }
+  prevProb = hw;
+}
+
+function addLogRow(d, hw, delta) {
+  logEntries.unshift({
+    clock : d.clock,
+    period: d.period,
+    score : `${d.away_score}–${d.home_score}`,
+    hw    : hw,
+    delta : delta,
+  });
+  if (logEntries.length > 50) logEntries.pop();
+
+  const log = document.getElementById("play-log");
+  if (!log) return;
+  log.innerHTML = logEntries.slice(0, 20).map(e => {
+    const dir  = e.delta > 0 ? "up" : "down";
+    const sign = e.delta > 0 ? "↑" : "↓";
+    return `<div class="log-row">
+      <span class="log-time">Q${e.period} ${e.clock}</span>
+      <span class="log-score">${e.score}</span>
+      <span class="log-prob ${dir}">${sign} ${(e.hw*100).toFixed(1)}%</span>
+      <span class="log-diff">${e.delta >= 0 ? "+" : ""}${(e.delta*100).toFixed(1)}pp</span>
+    </div>`;
+  }).join("");
+}
+
+// ── Chart ─────────────────────────────────────────────────────────────────────
+function initChart() {
+  const ctx = document.getElementById("prob-chart").getContext("2d");
+  chartInstance = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels: [],
+      datasets: [
+        {
+          label: "Home",
+          data: [],
+          borderColor: "#f97316",
+          backgroundColor: "rgba(249,115,22,.08)",
+          fill: true,
+          tension: 0.35,
+          pointRadius: 0,
+          borderWidth: 2,
+        },
+        {
+          label: "Away",
+          data: [],
+          borderColor: "#3b82f6",
+          backgroundColor: "rgba(59,130,246,.06)",
+          fill: true,
+          tension: 0.35,
+          pointRadius: 0,
+          borderWidth: 2,
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 300 },
+      plugins: {
+        legend: {
+          labels: { color: "#94a3b8", font: { family: "DM Mono", size: 11 } }
+        },
+        tooltip: {
+          mode: "index",
+          callbacks: {
+            label: (ctx) => ` ${ctx.dataset.label}: ${(ctx.parsed.y*100).toFixed(1)}%`
+          },
+          titleFont: { family: "DM Mono" },
+          bodyFont:  { family: "DM Mono" },
+        }
+      },
+      scales: {
+        x: {
+          reverse: true,
+          ticks: { color: "#4b5563", font: { family: "DM Mono", size: 10 }, maxTicksLimit: 8 },
+          grid:  { color: "rgba(255,255,255,.04)" },
+          title: { display: true, text: "Seconds remaining", color: "#4b5563", font: { family: "DM Mono", size: 10 } }
+        },
+        y: {
+          min: 0, max: 1,
+          ticks: {
+            color: "#4b5563", font: { family: "DM Mono", size: 10 },
+            callback: v => `${(v*100).toFixed(0)}%`
+          },
+          grid: { color: "rgba(255,255,255,.04)" }
+        }
+      }
+    }
+  });
+}
+
+function updateChart(hist, homeTeam, awayTeam) {
+  if (!chartInstance) return;
+  const labels = hist.map(h => h.t);
+  chartInstance.data.labels                  = labels;
+  chartInstance.data.datasets[0].data        = hist.map(h => h.hw);
+  chartInstance.data.datasets[1].data        = hist.map(h => h.aw);
+  chartInstance.data.datasets[0].label       = homeTeam + " (Home)";
+  chartInstance.data.datasets[1].label       = awayTeam + " (Away)";
+  chartInstance.update("none");
+}
+
+// ── Dashboard HTML template ───────────────────────────────────────────────────
+function getDashboardHTML() {
+  return `<div id="dashboard-root" style="display:flex;flex-direction:column;gap:20px;">
+
+    <!-- Scoreboard -->
+    <div class="scoreboard">
+      <div class="team-block">
+        <div class="team-abbr" id="d-away-abbr">AWAY</div>
+        <div class="team-score" id="d-away-score">0</div>
+        <div class="team-label">Away</div>
+      </div>
+      <div class="game-info">
+        <div class="game-period" id="d-period">Q1</div>
+        <div class="game-clock" id="d-clock">12:00</div>
+        <div class="game-status" id="d-status">Live</div>
+      </div>
+      <div class="team-block">
+        <div class="team-abbr" id="d-home-abbr">HOME</div>
+        <div class="team-score" id="d-home-score">0</div>
+        <div class="team-label">Home</div>
+      </div>
+    </div>
+
+    <!-- Win probability -->
+    <div class="prob-section">
+      <div class="prob-header">
+        <span class="prob-title">Win Probability</span>
+        <div class="prob-numbers">
+          <div class="prob-away">
+            <div class="prob-pct away-col" id="d-away-pct">50.0%</div>
+            <div class="prob-sub">Away</div>
+          </div>
+          <div class="prob-home">
+            <div class="prob-pct home-col" id="d-home-pct">50.0%</div>
+            <div class="prob-sub">Home</div>
+          </div>
+        </div>
+      </div>
+      <div class="prob-bar-wrap">
+        <div class="prob-bar-home" id="d-bar-home" style="width:50%"></div>
+        <div class="prob-bar-away"></div>
+        <div class="prob-bar-mid"></div>
+      </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-label">Score Diff</div>
+        <div class="stat-value" id="d-stat-diff">0</div>
+        <div class="stat-sub">Home perspective</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Time Left</div>
+        <div class="stat-value" id="d-stat-time">48:00</div>
+        <div class="stat-sub">mm:ss</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Fouls</div>
+        <div class="stat-value" id="d-stat-fouls">0–0</div>
+        <div class="stat-sub">Home – Away</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Timeouts</div>
+        <div class="stat-value" id="d-stat-to">7–7</div>
+        <div class="stat-sub">Home – Away</div>
+      </div>
+    </div>
+
+    <!-- Chart -->
+    <div class="chart-section">
+      <div class="chart-title">Win Probability Timeline</div>
+      <canvas id="prob-chart"></canvas>
+    </div>
+
+    <!-- Play log -->
+    <div class="log-section">
+      <div class="log-header">
+        <span>Probability Swings</span>
+        <span style="color:var(--muted)">last 20 events</span>
+      </div>
+      <div id="play-log"></div>
+    </div>
+
+  </div>`;
+}
+</script>
+</body>
+</html>
