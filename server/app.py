@@ -115,39 +115,50 @@ def fetch_live_games() -> list[dict]:
     try:
         today  = datetime.date.today().strftime("%m/%d/%Y")
         board  = scoreboardv2.ScoreboardV2(game_date=today)
-        lines  = board.get_data_frames()[1]   # LineScore
+        frames = board.get_data_frames()
+        lines  = frames[1]   # LineScore
+        header_df = frames[0]
 
         games  = {}
         for _, row in lines.iterrows():
-            gid   = str(row["GAME_ID"])
+            gid     = str(row["GAME_ID"])
             team_id = int(row["TEAM_ID"])
-            abbr  = TEAM_MAP.get(team_id, str(row.get("TEAM_ABBREVIATION", "???")))
-            score = int(row.get("PTS", 0) or 0)
-            fouls = int(row.get("PF",  0) or 0)
-            to    = int(row.get("TO",  0) or 0)
+            abbr    = TEAM_MAP.get(team_id, str(row.get("TEAM_ABBREVIATION", "???")))
+            score   = int(row.get("PTS", 0) or 0)
+            fouls   = int(row.get("PF",  0) or 0)
 
-            header_rows = board.get_data_frames()[0]
-            header      = header_rows[header_rows["GAME_ID"] == gid]
-            period      = int(header["LIVE_PERIOD"].iloc[0]) if not header.empty else 4
-            clock       = str(header["LIVE_PC_TIME"].iloc[0]) if not header.empty else "0:00"
-            status      = str(header["GAME_STATUS_TEXT"].iloc[0]) if not header.empty else ""
+            header  = header_df[header_df["GAME_ID"] == gid]
+            period  = int(header["LIVE_PERIOD"].iloc[0]) if not header.empty else 4
+            clock   = str(header["LIVE_PC_TIME"].iloc[0]) if not header.empty else "0:00"
+            status  = str(header["GAME_STATUS_TEXT"].iloc[0]) if not header.empty else ""
 
             if gid not in games:
                 games[gid] = {"game_id": gid, "period": period,
                                "clock": clock, "status": status,
                                "home": {}, "away": {}}
 
-            # first team in a game is usually away, second is home
             entry = games[gid]
             side  = "away" if not entry["away"] else "home"
-            entry[side] = {"abbr": abbr, "score": score,
-                           "fouls": fouls, "timeouts": max(0, 7 - to)}
+
+            # pull timeouts from team stats if available
+            try:
+                team_stats = frames[4]  # TeamStats frame
+                ts = team_stats[team_stats["TEAM_ID"] == team_id]
+                timeouts = int(ts["TEAM_TIMEOUTS_REMAINING"].iloc[0]) if not ts.empty else 7
+            except Exception:
+                timeouts = 7
+
+            entry[side] = {
+                "abbr"    : abbr,
+                "score"   : score,
+                "fouls"   : fouls,
+                "timeouts": timeouts,
+            }
 
         return list(games.values())
     except Exception as e:
         print(f"[scoreboard] Error: {e}")
         return []
-
 
 # ── Simulation (demo fallback) ────────────────────────────────────────────────
 

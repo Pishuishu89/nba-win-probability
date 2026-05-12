@@ -493,10 +493,13 @@ function initChart() {
 
 function updateChart(hist, homeTeam, awayTeam) {
   if (!chartInstance) return;
-  const labels = hist.map(h => h.t);
-  chartInstance.data.labels                  = labels;
-  chartInstance.data.datasets[0].data        = hist.map(h => h.hw);
-  chartInstance.data.datasets[1].data        = hist.map(h => h.aw);
+  
+  // sort by time remaining descending (game start → now)
+  const sorted = [...hist].sort((a, b) => b.t - a.t);
+  
+  chartInstance.data.labels                  = sorted.map(h => h.t);
+  chartInstance.data.datasets[0].data        = sorted.map(h => h.hw);
+  chartInstance.data.datasets[1].data        = sorted.map(h => h.aw);
   chartInstance.data.datasets[0].label       = homeTeam + " (Home)";
   chartInstance.data.datasets[1].label       = awayTeam + " (Away)";
   chartInstance.update("none");
